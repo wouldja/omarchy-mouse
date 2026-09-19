@@ -8,7 +8,7 @@ scrolling, scroll speed, primary button, and common touchpad controls.
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/REPLACE_ME/omarchy-mouse.git --enable
+omarchy plugin add https://github.com/wouldja/omarchy-mouse.git --enable
 ```
 
 The widget lands on the right of the bar. If it does not appear immediately:
@@ -22,7 +22,7 @@ Click the mouse icon to open the panel. Scroll the icon to nudge pointer speed.
 ## Remove
 
 ```sh
-omarchy plugin remove brian.mouse
+omarchy plugin remove io.github.wouldja.mouse
 ```
 
 Removal does not delete Hyprland files the panel already wrote. If you want

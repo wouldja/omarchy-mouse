@@ -8,8 +8,8 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "brian.mouse"
-  ipcTarget: "brian.mouse"
+  moduleName: "io.github.wouldja.mouse"
+  ipcTarget: "io.github.wouldja.mouse"
 
   property real sensitivity: 0
   property string accelProfile: "adaptive"
