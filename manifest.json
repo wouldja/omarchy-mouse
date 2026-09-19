@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "brian.mouse",
+  "name": "Mouse",
+  "version": "1.0.0",
+  "author": "Brian Ehlers",
+  "description": "Pointer speed, acceleration, natural scrolling, and mouse controls",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Mouse",
+    "description": "Pointer speed, acceleration, natural scrolling, and mouse controls",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
