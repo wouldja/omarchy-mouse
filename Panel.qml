@@ -403,6 +403,7 @@ Panel {
             width: parent.width
             title: "Mouse"
             iconSize: Style.font.title
+            detail: "1.2.0"
             meta: Model.heroMeta({
               accelProfile: root.accelProfile,
               naturalScroll: root.naturalScroll,
