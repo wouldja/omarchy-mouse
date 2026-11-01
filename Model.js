@@ -127,6 +127,7 @@ function statePayload(state) {
 function visibleSections(hasTouchpad) {
   var list = ["speed", "accel", "natural", "scroll", "primary"]
   if (hasTouchpad) {
+    list.push("touchNatural")
     list.push("touchScroll")
     list.push("tap")
     list.push("dwt")
