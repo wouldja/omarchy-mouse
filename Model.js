@@ -80,6 +80,7 @@ function emptyState() {
     naturalScroll: false,
     scrollFactor: 1,
     leftHanded: false,
+    touchpadSensitivity: 0,
     touchpadNaturalScroll: false,
     touchpadScrollFactor: 0.4,
     disableWhileTyping: true,
@@ -100,6 +101,7 @@ function parseState(raw) {
   state.naturalScroll = asBool(parsed.naturalScroll, false)
   state.scrollFactor = clamp(asNumber(parsed.scrollFactor, 1), 0.1, 2)
   state.leftHanded = asBool(parsed.leftHanded, false)
+  state.touchpadSensitivity = clamp(asNumber(parsed.touchpadSensitivity, state.sensitivity), -1, 1)
   state.touchpadNaturalScroll = asBool(parsed.touchpadNaturalScroll, state.naturalScroll)
   state.touchpadScrollFactor = clamp(asNumber(parsed.touchpadScrollFactor, 0.4), 0.1, 2)
   state.disableWhileTyping = asBool(parsed.disableWhileTyping, true)
@@ -116,6 +118,7 @@ function statePayload(state) {
     naturalScroll: !!state.naturalScroll,
     scrollFactor: clamp(asNumber(state.scrollFactor, 1), 0.1, 2),
     leftHanded: !!state.leftHanded,
+    touchpadSensitivity: clamp(asNumber(state.touchpadSensitivity, 0), -1, 1),
     touchpadNaturalScroll: !!state.touchpadNaturalScroll,
     touchpadScrollFactor: clamp(asNumber(state.touchpadScrollFactor, 0.4), 0.1, 2),
     disableWhileTyping: !!state.disableWhileTyping,
@@ -127,6 +130,7 @@ function statePayload(state) {
 function visibleSections(hasTouchpad) {
   var list = ["speed", "accel", "natural", "scroll", "primary"]
   if (hasTouchpad) {
+    list.push("touchSpeed")
     list.push("touchScroll")
     list.push("tap")
     list.push("dwt")
@@ -136,7 +140,7 @@ function visibleSections(hasTouchpad) {
 }
 
 function sectionIsSlider(section) {
-  return section === "speed" || section === "scroll" || section === "touchScroll"
+  return section === "speed" || section === "scroll" || section === "touchSpeed" || section === "touchScroll"
 }
 
 function sectionIsChoice(section) {

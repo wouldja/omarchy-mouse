@@ -1,7 +1,8 @@
 # Mouse
 
-Bar widget for Omarchy pointer settings: speed, acceleration, natural
-scrolling, scroll speed, primary button, and common touchpad controls.
+Bar widget for Omarchy pointer settings: separate mouse and touchpad speed,
+acceleration, natural scrolling, scroll speed, primary button, and common
+touchpad controls.
 
 ![Mouse panel](preview.png)
 
@@ -17,7 +18,7 @@ The widget lands on the right of the bar. If it does not appear immediately:
 omarchy-shell shell rescanPlugins
 ```
 
-Click the mouse icon to open the panel. Scroll the icon to nudge pointer speed.
+Click the mouse icon to open the panel. Scroll the icon to nudge mouse speed.
 
 ## Remove
 
@@ -36,7 +37,8 @@ those gone too:
 Using a control in the panel applies the value immediately through `hyprctl eval`
 and, on commit, writes:
 
-- `~/.config/hypr/mouse.lua` — generated pointer settings
+- `~/.config/hypr/mouse.lua` — generated pointer settings, including an
+  `hl.device` line per touchpad that keeps its speed apart from the mouse
 - `~/.config/hypr/hyprland.lua` — adds `require("hypr.mouse")` if it is missing
   (the rest of the file is left alone)
 

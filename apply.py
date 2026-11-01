@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,7 +28,16 @@ OPTIONS = {
     "clickfingerBehavior": "input:touchpad:clickfinger_behavior",
 }
 
-FLOAT_KEYS = {"sensitivity", "scrollFactor", "touchpadScrollFactor"}
+# Hyprland has no global touchpad speed and no way to read a per-device value
+# back, so the touchpad override lives in mouse.lua as one hl.device line per
+# touchpad and is read from there.
+TOUCHPAD_OVERRIDE = re.compile(
+    r'^hl\.device\(\{ name = "((?:[^"\\]|\\.)*)", sensitivity = (-?\d+(?:\.\d+)?) \}\)$',
+    re.MULTILINE,
+)
+
+SENSITIVITY_KEYS = {"sensitivity", "touchpadSensitivity"}
+FLOAT_KEYS = SENSITIVITY_KEYS | {"scrollFactor", "touchpadScrollFactor"}
 BOOL_KEYS = {
     "naturalScroll",
     "leftHanded",
@@ -79,19 +89,32 @@ def option_float(data: dict, fallback: float) -> float:
     return fallback
 
 
-def has_touchpad() -> bool:
+def connected_touchpads() -> list[str]:
     proc = run(["hyprctl", "-j", "devices"])
     if proc.returncode != 0 or not proc.stdout.strip():
-        return False
+        return []
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return False
+        return []
+    names = []
     for mouse in payload.get("mice") or []:
-        name = str(mouse.get("name") or "").lower()
-        if "touchpad" in name or "trackpad" in name:
-            return True
-    return False
+        name = str(mouse.get("name") or "")
+        lowered = name.lower()
+        if "touchpad" in lowered or "trackpad" in lowered:
+            names.append(name)
+    return names
+
+
+def saved_touchpad_overrides() -> dict[str, float]:
+    try:
+        text = MOUSE_LUA.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    return {
+        re.sub(r"\\(.)", r"\1", name): float(value)
+        for name, value in TOUCHPAD_OVERRIDE.findall(text)
+    }
 
 
 def normalize_accel(value: object) -> str:
@@ -115,8 +138,11 @@ def current_state() -> dict:
         accel_profile = accel
     else:
         accel_profile = "flat" if accel == "flat" else "adaptive"
+    sensitivity = clamp(option_float(hypr_option(OPTIONS["sensitivity"]), 0.0), -1.0, 1.0)
+    touchpads = connected_touchpads()
+    overrides = saved_touchpad_overrides()
     return {
-        "sensitivity": clamp(option_float(hypr_option(OPTIONS["sensitivity"]), 0.0), -1.0, 1.0),
+        "sensitivity": sensitivity,
         "accelProfile": accel_profile,
         "naturalScroll": option_bool(hypr_option(OPTIONS["naturalScroll"]), False),
         "scrollFactor": clamp(option_float(hypr_option(OPTIONS["scrollFactor"]), 1.0), 0.1, 2.0),
@@ -128,7 +154,11 @@ def current_state() -> dict:
         "disableWhileTyping": option_bool(hypr_option(OPTIONS["disableWhileTyping"]), True),
         "tapToClick": option_bool(hypr_option(OPTIONS["tapToClick"]), True),
         "clickfingerBehavior": option_bool(hypr_option(OPTIONS["clickfingerBehavior"]), True),
-        "hasTouchpad": has_touchpad(),
+        # Until an override exists the touchpad follows the global sensitivity.
+        "touchpadSensitivity": clamp(next(iter(overrides.values()), sensitivity), -1.0, 1.0),
+        # Saved names stay so a disconnected touchpad keeps its speed.
+        "touchpadNames": sorted({*touchpads, *overrides}),
+        "hasTouchpad": bool(touchpads),
     }
 
 
@@ -136,7 +166,7 @@ def merge_state(raw: object) -> dict:
     state = current_state()
     if not isinstance(raw, dict):
         return state
-    for key in OPTIONS:
+    for key in state:
         if key not in raw:
             continue
         if key in BOOL_KEYS:
@@ -146,7 +176,7 @@ def merge_state(raw: object) -> dict:
                 number = float(raw[key])
             except (TypeError, ValueError):
                 continue
-            if key == "sensitivity":
+            if key in SENSITIVITY_KEYS:
                 state[key] = clamp(number, -1.0, 1.0)
             else:
                 state[key] = clamp(number, 0.1, 2.0)
@@ -211,10 +241,20 @@ def lua_config(state: dict, pretty: bool = False) -> str:
 }})"""
 
 
+def lua_touchpad_overrides(state: dict) -> str:
+    speed = float(state["touchpadSensitivity"])
+    # Device names come from hardware; only printable ones can go in Lua.
+    return "".join(
+        f"hl.device({{ name = {lua_string(name)}, sensitivity = {speed:.2f} }})\n"
+        for name in state["touchpadNames"]
+        if name.isprintable()
+    )
+
+
 def apply_live(state: dict) -> None:
     # Lua-parser sessions reject `hyprctl keyword`; eval applies the same table
     # the persisted mouse.lua uses.
-    proc = run(["hyprctl", "eval", lua_config(state)])
+    proc = run(["hyprctl", "eval", lua_config(state) + "\n" + lua_touchpad_overrides(state)])
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr or proc.stdout or "hyprctl eval failed\n")
 
@@ -225,6 +265,7 @@ def persist_lua(state: dict) -> None:
         "-- Generated by the Mouse panel plugin (io.github.wouldja.mouse). Use the panel to edit.\n"
         + lua_config(state, pretty=True)
         + "\n"
+        + lua_touchpad_overrides(state)
     )
     tmp = MOUSE_LUA.with_suffix(".lua.tmp")
     tmp.write_text(body, encoding="utf-8")
