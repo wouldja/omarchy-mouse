@@ -65,12 +65,18 @@ function speedName(percent) {
   return "Lightning"
 }
 
-function heroMeta(state, speedPercent) {
-  var parts = [accelLabel(state.accelProfile).toUpperCase()]
-  parts.push(Math.round(speedPercent) + "%")
-  if (state.naturalScroll) parts.push("NATURAL")
-  if (state.leftHanded) parts.push("LEFT")
-  return parts.join(" · ")
+function heroTitle(hasMouse, hasTouchpad) {
+  if (hasMouse && hasTouchpad) return "Mouse & touchpad"
+  if (hasTouchpad) return "Touchpad"
+  if (hasMouse) return "Mouse"
+  return "No pointer devices"
+}
+
+function heroMeta(hasMouse, hasTouchpad, speedPercent, touchSpeedPercent) {
+  var parts = []
+  if (hasMouse) parts.push("MOUSE " + Math.round(speedPercent) + "%")
+  if (hasTouchpad) parts.push("TOUCHPAD " + Math.round(touchSpeedPercent) + "%")
+  return parts.length ? parts.join(" · ") : "NOTHING DETECTED"
 }
 
 function emptyState() {
@@ -80,11 +86,15 @@ function emptyState() {
     naturalScroll: false,
     scrollFactor: 1,
     leftHanded: false,
+    touchpadSensitivity: 0,
+    touchpadAccelProfile: "adaptive",
     touchpadNaturalScroll: false,
     touchpadScrollFactor: 0.4,
+    touchpadLeftHanded: false,
     disableWhileTyping: true,
     tapToClick: true,
     clickfingerBehavior: true,
+    hasMouse: true,
     hasTouchpad: false
   }
 }
@@ -100,13 +110,27 @@ function parseState(raw) {
   state.naturalScroll = asBool(parsed.naturalScroll, false)
   state.scrollFactor = clamp(asNumber(parsed.scrollFactor, 1), 0.1, 2)
   state.leftHanded = asBool(parsed.leftHanded, false)
+  state.touchpadSensitivity = clamp(asNumber(parsed.touchpadSensitivity, state.sensitivity), -1, 1)
+  state.touchpadAccelProfile = normalizeAccel(parsed.touchpadAccelProfile === undefined ? state.accelProfile : parsed.touchpadAccelProfile)
+  state.touchpadLeftHanded = asBool(parsed.touchpadLeftHanded, state.leftHanded)
   state.touchpadNaturalScroll = asBool(parsed.touchpadNaturalScroll, state.naturalScroll)
   state.touchpadScrollFactor = clamp(asNumber(parsed.touchpadScrollFactor, 0.4), 0.1, 2)
   state.disableWhileTyping = asBool(parsed.disableWhileTyping, true)
   state.tapToClick = asBool(parsed.tapToClick, true)
   state.clickfingerBehavior = asBool(parsed.clickfingerBehavior, true)
+  state.hasMouse = asBool(parsed.hasMouse, true)
   state.hasTouchpad = asBool(parsed.hasTouchpad, false)
   return state
+}
+
+function parseDevices(raw) {
+  var parsed = null
+  try { parsed = JSON.parse(String(raw || "")) } catch (e) { return null }
+  if (!parsed || typeof parsed !== "object") return null
+  return {
+    hasMouse: asBool(parsed.hasMouse, true),
+    hasTouchpad: asBool(parsed.hasTouchpad, false)
+  }
 }
 
 function statePayload(state) {
@@ -116,6 +140,9 @@ function statePayload(state) {
     naturalScroll: !!state.naturalScroll,
     scrollFactor: clamp(asNumber(state.scrollFactor, 1), 0.1, 2),
     leftHanded: !!state.leftHanded,
+    touchpadSensitivity: clamp(asNumber(state.touchpadSensitivity, 0), -1, 1),
+    touchpadAccelProfile: normalizeAccel(state.touchpadAccelProfile),
+    touchpadLeftHanded: !!state.touchpadLeftHanded,
     touchpadNaturalScroll: !!state.touchpadNaturalScroll,
     touchpadScrollFactor: clamp(asNumber(state.touchpadScrollFactor, 0.4), 0.1, 2),
     disableWhileTyping: !!state.disableWhileTyping,
@@ -124,23 +151,26 @@ function statePayload(state) {
   })
 }
 
-function visibleSections(hasTouchpad) {
-  var list = ["speed", "accel", "natural", "scroll", "primary"]
-  if (hasTouchpad) {
-    list.push("touchScroll")
-    list.push("tap")
-    list.push("dwt")
-    list.push("clickfinger")
+function visibleSections(showMouse, showTouchpad) {
+  var list = []
+  if (showMouse) list = list.concat(["speed", "scroll", "accel", "primary", "natural"])
+  if (showTouchpad) {
+    list = list.concat([
+      "touchSpeed", "touchScroll", "touchAccel", "touchPrimary",
+      "touchNatural", "tap", "dwt", "clickfinger"
+    ])
   }
+  if (!showMouse) list.push("revealMouse")
+  if (!showTouchpad) list.push("revealTouchpad")
   return list
 }
 
 function sectionIsSlider(section) {
-  return section === "speed" || section === "scroll" || section === "touchScroll"
+  return section === "speed" || section === "scroll" || section === "touchSpeed" || section === "touchScroll"
 }
 
 function sectionIsChoice(section) {
-  return section === "accel" || section === "primary"
+  return section === "accel" || section === "primary" || section === "touchAccel" || section === "touchPrimary"
 }
 
 function sectionChoiceCount(section) {

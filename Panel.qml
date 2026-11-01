@@ -16,12 +16,22 @@ Panel {
   property bool naturalScroll: false
   property real scrollFactor: 1
   property bool leftHanded: false
+  property real touchpadSensitivity: 0
+  property string touchpadAccelProfile: "adaptive"
+  property bool touchpadNaturalScroll: false
   property real touchpadScrollFactor: 0.4
+  property bool touchpadLeftHanded: false
   property bool disableWhileTyping: true
   property bool tapToClick: true
   property bool clickfingerBehavior: true
+  property bool hasMouse: true
   property bool hasTouchpad: false
   property bool loaded: false
+
+  // Detection is a heuristic, so a group it hides can be brought back by hand
+  // until the shell restarts.
+  property bool mouseRevealed: false
+  property bool touchpadRevealed: false
 
   property real wheelAccumulator: 0
   property bool persistQueued: false
@@ -33,10 +43,17 @@ Panel {
   property int selectedIndex: -1
   property bool cursorActive: false
 
+  readonly property string mouseGlyph: "󰍽"
+  readonly property string touchpadGlyph: "󰌢"
+  readonly property bool showMouse: root.hasMouse || root.mouseRevealed
+  readonly property bool showTouchpad: root.hasTouchpad || root.touchpadRevealed
+  readonly property string barGlyph: !root.hasMouse && root.hasTouchpad ? root.touchpadGlyph : root.mouseGlyph
+
   readonly property real speedPercent: Model.speedPercentFromSensitivity(root.sensitivity)
   readonly property real scrollPercent: Model.scrollPercentFromFactor(root.scrollFactor)
+  readonly property real touchSpeedPercent: Model.speedPercentFromSensitivity(root.touchpadSensitivity)
   readonly property real touchScrollPercent: Model.scrollPercentFromFactor(root.touchpadScrollFactor)
-  readonly property var visibleSections: Model.visibleSections(root.hasTouchpad)
+  readonly property var visibleSections: Model.visibleSections(root.showMouse, root.showTouchpad)
   readonly property string applyBin: {
     var url = String(Qt.resolvedUrl("apply.py"))
     return url.indexOf("file://") === 0 ? url.slice(7) : url
@@ -58,8 +75,11 @@ Panel {
       naturalScroll: root.naturalScroll,
       scrollFactor: root.scrollFactor,
       leftHanded: root.leftHanded,
-      touchpadNaturalScroll: root.naturalScroll,
+      touchpadSensitivity: root.touchpadSensitivity,
+      touchpadAccelProfile: root.touchpadAccelProfile,
+      touchpadNaturalScroll: root.touchpadNaturalScroll,
       touchpadScrollFactor: root.touchpadScrollFactor,
+      touchpadLeftHanded: root.touchpadLeftHanded,
       disableWhileTyping: root.disableWhileTyping,
       tapToClick: root.tapToClick,
       clickfingerBehavior: root.clickfingerBehavior
@@ -68,14 +88,19 @@ Panel {
 
   function applyParsed(parsed) {
     root.sensitivity = parsed.sensitivity
-    root.accelProfile = parsed.accelProfile === "flat" ? "flat" : (parsed.accelProfile === "custom" ? "custom" : "adaptive")
+    root.accelProfile = parsed.accelProfile
     root.naturalScroll = parsed.naturalScroll
     root.scrollFactor = parsed.scrollFactor
     root.leftHanded = parsed.leftHanded
+    root.touchpadSensitivity = parsed.touchpadSensitivity
+    root.touchpadAccelProfile = parsed.touchpadAccelProfile
+    root.touchpadNaturalScroll = parsed.touchpadNaturalScroll
     root.touchpadScrollFactor = parsed.touchpadScrollFactor
+    root.touchpadLeftHanded = parsed.touchpadLeftHanded
     root.disableWhileTyping = parsed.disableWhileTyping
     root.tapToClick = parsed.tapToClick
     root.clickfingerBehavior = parsed.clickfingerBehavior
+    root.hasMouse = parsed.hasMouse
     root.hasTouchpad = parsed.hasTouchpad
     root.loaded = true
   }
@@ -92,6 +117,12 @@ Panel {
     if (getProc.running) return
     getProc.command = ["python3", applyPath(), "get"]
     getProc.running = true
+  }
+
+  function refreshDevices() {
+    if (devicesProc.running) return
+    devicesProc.command = ["python3", applyPath(), "devices"]
+    devicesProc.running = true
   }
 
   function queueApply(mode) {
@@ -111,85 +142,71 @@ Panel {
     setProc.running = true
   }
 
-  function setSensitivityFromPercent(percent) {
-    root.sensitivity = Model.sensitivityFromSpeedPercent(percent)
-    queueApply("live")
+  function setSliderPercent(section, percent, mode) {
+    if (section === "speed") root.sensitivity = Model.sensitivityFromSpeedPercent(percent)
+    else if (section === "scroll") root.scrollFactor = Model.factorFromScrollPercent(percent)
+    else if (section === "touchSpeed") root.touchpadSensitivity = Model.sensitivityFromSpeedPercent(percent)
+    else if (section === "touchScroll") root.touchpadScrollFactor = Model.factorFromScrollPercent(percent)
+    else return
+    queueApply(mode)
   }
 
-  function commitSensitivityFromPercent(percent) {
-    root.sensitivity = Model.sensitivityFromSpeedPercent(percent)
-    queueApply("apply")
+  function sliderPercent(section) {
+    if (section === "speed") return root.speedPercent
+    if (section === "scroll") return root.scrollPercent
+    if (section === "touchSpeed") return root.touchSpeedPercent
+    if (section === "touchScroll") return root.touchScrollPercent
+    return 0
   }
 
-  function nudgeSpeed(steps) {
-    commitSensitivityFromPercent(root.speedPercent + steps)
-  }
-
-  function setScrollFromPercent(percent) {
-    root.scrollFactor = Model.factorFromScrollPercent(percent)
-    queueApply("live")
-  }
-
-  function commitScrollFromPercent(percent) {
-    root.scrollFactor = Model.factorFromScrollPercent(percent)
-    queueApply("apply")
-  }
-
-  function setTouchScrollFromPercent(percent) {
-    root.touchpadScrollFactor = Model.factorFromScrollPercent(percent)
-    queueApply("live")
-  }
-
-  function commitTouchScrollFromPercent(percent) {
-    root.touchpadScrollFactor = Model.factorFromScrollPercent(percent)
-    queueApply("apply")
-  }
-
-  function setAccel(profile) {
-    root.accelProfile = profile === "flat" ? "flat" : "adaptive"
-    queueApply("apply")
-  }
-
-  function setNatural(enabled) {
-    root.naturalScroll = !!enabled
-    queueApply("apply")
-  }
-
-  function setLeftHanded(enabled) {
-    root.leftHanded = !!enabled
-    queueApply("apply")
-  }
-
-  function setTapToClick(enabled) {
-    root.tapToClick = !!enabled
-    queueApply("apply")
-  }
-
-  function setDisableWhileTyping(enabled) {
-    root.disableWhileTyping = !!enabled
-    queueApply("apply")
-  }
-
-  function setClickfinger(enabled) {
-    root.clickfingerBehavior = !!enabled
+  function setChoice(section, value) {
+    if (section === "accel") root.accelProfile = value
+    else if (section === "primary") root.leftHanded = value === "right"
+    else if (section === "touchAccel") root.touchpadAccelProfile = value
+    else if (section === "touchPrimary") root.touchpadLeftHanded = value === "right"
+    else return
     queueApply("apply")
   }
 
   function choiceValue(section) {
     if (section === "accel") return root.accelProfile === "flat" ? "flat" : "adaptive"
     if (section === "primary") return root.leftHanded ? "right" : "left"
+    if (section === "touchAccel") return root.touchpadAccelProfile === "flat" ? "flat" : "adaptive"
+    if (section === "touchPrimary") return root.touchpadLeftHanded ? "right" : "left"
     return ""
   }
 
   function choiceOptions(section) {
-    if (section === "accel") return root.accelOptions
-    if (section === "primary") return root.primaryOptions
-    return []
+    return section === "accel" || section === "touchAccel" ? root.accelOptions : root.primaryOptions
   }
 
-  function applyChoice(section, value) {
-    if (section === "accel") setAccel(value)
-    else if (section === "primary") setLeftHanded(value === "right")
+  function toggleChecked(section) {
+    if (section === "natural") return root.naturalScroll
+    if (section === "touchNatural") return root.touchpadNaturalScroll
+    if (section === "tap") return root.tapToClick
+    if (section === "dwt") return root.disableWhileTyping
+    if (section === "clickfinger") return root.clickfingerBehavior
+    return false
+  }
+
+  function flipToggle(section) {
+    if (section === "natural") root.naturalScroll = !root.naturalScroll
+    else if (section === "touchNatural") root.touchpadNaturalScroll = !root.touchpadNaturalScroll
+    else if (section === "tap") root.tapToClick = !root.tapToClick
+    else if (section === "dwt") root.disableWhileTyping = !root.disableWhileTyping
+    else if (section === "clickfinger") root.clickfingerBehavior = !root.clickfingerBehavior
+    else return
+    queueApply("apply")
+  }
+
+  // A choice row lands on its current value, so the cursor never suggests a
+  // setting that isn't active.
+  function landingIndex(section) {
+    if (!Model.sectionIsChoice(section)) return Model.sectionFirstIndex(section)
+    var options = choiceOptions(section)
+    for (var i = 0; i < options.length; i++)
+      if (options[i].value === choiceValue(section)) return i
+    return 0
   }
 
   function moveCursor(delta) {
@@ -198,65 +215,43 @@ Panel {
     var sIdx = sections.indexOf(focusSection)
     if (sIdx < 0) {
       focusSection = sections[0]
-      selectedIndex = Model.sectionFirstIndex(focusSection)
+      selectedIndex = landingIndex(focusSection)
       return
     }
     if (delta > 0) {
-      if (Model.sectionIsChoice(focusSection) && selectedIndex < Model.sectionChoiceCount(focusSection) - 1) {
-        selectedIndex = selectedIndex + 1
-        return
-      }
       if (sIdx < sections.length - 1) {
         focusSection = sections[sIdx + 1]
-        selectedIndex = Model.sectionFirstIndex(focusSection)
+        selectedIndex = landingIndex(focusSection)
       }
-    } else {
-      if (Model.sectionIsChoice(focusSection) && selectedIndex > 0) {
-        selectedIndex = selectedIndex - 1
-        return
-      }
-      if (sIdx > 0) {
-        var prev = sections[sIdx - 1]
-        focusSection = prev
-        selectedIndex = Model.sectionIsChoice(prev)
-          ? Model.sectionChoiceCount(prev) - 1
-          : Model.sectionFirstIndex(prev)
-      }
+    } else if (sIdx > 0) {
+      focusSection = sections[sIdx - 1]
+      selectedIndex = landingIndex(focusSection)
     }
   }
 
   function moveCursorH(delta) {
-    if (focusSection === "speed") {
-      nudgeSpeed(delta * 5)
-      return
-    }
-    if (focusSection === "scroll") {
-      commitScrollFromPercent(root.scrollPercent + delta * 5)
-      return
-    }
-    if (focusSection === "touchScroll") {
-      commitTouchScrollFromPercent(root.touchScrollPercent + delta * 5)
+    if (Model.sectionIsSlider(focusSection)) {
+      setSliderPercent(focusSection, sliderPercent(focusSection) + delta * 5, "apply")
       return
     }
     if (Model.sectionIsChoice(focusSection)) {
       var max = Model.sectionChoiceCount(focusSection) - 1
-      var next = selectedIndex + delta
-      if (next < 0) next = 0
-      if (next > max) next = max
+      var next = Math.max(0, Math.min(max, selectedIndex + delta))
       selectedIndex = next
+      setChoice(focusSection, choiceOptions(focusSection)[next].value)
     }
   }
 
   function activateCursor() {
-    if (focusSection === "natural") { setNatural(!root.naturalScroll); return }
-    if (focusSection === "tap") { setTapToClick(!root.tapToClick); return }
-    if (focusSection === "dwt") { setDisableWhileTyping(!root.disableWhileTyping); return }
-    if (focusSection === "clickfinger") { setClickfinger(!root.clickfingerBehavior); return }
+    if (focusSection === "revealMouse") { root.mouseRevealed = true; return }
+    if (focusSection === "revealTouchpad") { root.touchpadRevealed = true; return }
     if (Model.sectionIsChoice(focusSection)) {
       var options = choiceOptions(focusSection)
       if (selectedIndex >= 0 && selectedIndex < options.length)
-        applyChoice(focusSection, options[selectedIndex].value)
+        setChoice(focusSection, options[selectedIndex].value)
+      return
     }
+    flipToggle(focusSection)
   }
 
   function clampCursor() {
@@ -264,7 +259,7 @@ Panel {
     if (!sections || !sections.length) return
     if (sections.indexOf(focusSection) < 0) {
       focusSection = sections[0]
-      selectedIndex = Model.sectionFirstIndex(focusSection)
+      selectedIndex = landingIndex(focusSection)
       return
     }
     if (Model.sectionIsSlider(focusSection)) {
@@ -295,11 +290,14 @@ Panel {
       flick.contentY = bottom + margin - flick.height
   }
 
-  function showSpeedOsd() {
+  // The icon adjusts whichever device the panel treats as primary.
+  function nudgeBarSpeed(steps) {
+    var section = root.hasMouse || !root.hasTouchpad ? "speed" : "touchSpeed"
+    setSliderPercent(section, sliderPercent(section) + steps * 5, "apply")
     if (!bar || !bar.shell) return
     bar.shell.summon("omarchy.osd", JSON.stringify({
-      icon: "󰍽",
-      value: root.speedPercent
+      icon: root.barGlyph,
+      value: sliderPercent(section)
     }))
   }
 
@@ -311,13 +309,12 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       refresh()
-      focusSection = "speed"
-      selectedIndex = -1
+      focusSection = root.visibleSections[0]
+      selectedIndex = landingIndex(focusSection)
       cursorActive = false
     }
   }
 
-  onHasTouchpadChanged: clampCursor()
   onVisibleSectionsChanged: clampCursor()
 
   Process {
@@ -329,15 +326,29 @@ Panel {
   }
 
   Process {
-    id: setProc
+    id: devicesProc
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var parsed = Model.parseState(text)
-        if (parsed && parsed.accelProfile)
-          root.hasTouchpad = parsed.hasTouchpad
+        var devices = Model.parseDevices(text)
+        if (!devices) return
+        root.hasMouse = devices.hasMouse
+        root.hasTouchpad = devices.hasTouchpad
       }
     }
+  }
+
+  // Hyprland reports no event for devices coming and going, so an open panel
+  // asks. It stays quiet while closed and reads the state again on open.
+  Timer {
+    interval: 2000
+    repeat: true
+    running: root.opened
+    onTriggered: root.refreshDevices()
+  }
+
+  Process {
+    id: setProc
     onRunningChanged: {
       if (running) return
       if (root.persistQueued || root.liveQueued) root.flushApply()
@@ -348,15 +359,14 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰍽"
-    tooltipText: "Mouse"
+    text: root.barGlyph
+    tooltipText: Model.heroTitle(root.hasMouse, root.hasTouchpad)
     onPressed: function(b) { root.toggle() }
     onWheelMoved: function(delta) {
       var wheel = Util.wheelSteps(root.wheelAccumulator, delta)
       root.wheelAccumulator = wheel.remainder
       if (wheel.steps === 0) return
-      root.nudgeSpeed(wheel.steps * 5)
-      root.showSpeedOsd()
+      root.nudgeBarSpeed(wheel.steps)
     }
   }
 
@@ -397,121 +407,88 @@ Panel {
         Column {
           id: panelColumn
           width: scrollArea.availableWidth
-          spacing: Style.space(8)
+          spacing: Style.space(10)
 
           PanelHero {
             width: parent.width
-            title: "Mouse"
+            title: Model.heroTitle(root.hasMouse, root.hasTouchpad)
             iconSize: Style.font.title
-            detail: "1.2.0"
-            meta: Model.heroMeta({
-              accelProfile: root.accelProfile,
-              naturalScroll: root.naturalScroll,
-              leftHanded: root.leftHanded
-            }, speedSection.dragging ? speedSection.liveValue : root.speedPercent)
+            detail: "1.4.0"
+            meta: Model.heroMeta(root.hasMouse, root.hasTouchpad, root.speedPercent, root.touchSpeedPercent)
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
             iconComponent: heroIcon
           }
 
-          SliderSection {
-            id: speedSection
+          Text {
             width: parent.width
-            sectionId: "speed"
-            title: "POINTER SPEED"
-            value: root.speedPercent
-            valueText: Math.round(dragging ? liveValue : root.speedPercent) + "%"
-            onMoved: function(v) { root.setSensitivityFromPercent(v) }
-            onReleased: function(v) { root.commitSensitivityFromPercent(v) }
+            visible: !root.showMouse && !root.showTouchpad
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: "Connect a mouse or touchpad and its settings will appear here."
+            color: Qt.darker(root.bar.foreground, 1.4)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
           }
 
-          SliderSection {
+          DeviceGroup {
             width: parent.width
-            sectionId: "scroll"
-            title: "SCROLL SPEED"
-            value: root.scrollPercent
-            valueText: Math.round(dragging ? liveValue : root.scrollPercent) + "%"
-            onMoved: function(v) { root.setScrollFromPercent(v) }
-            onReleased: function(v) { root.commitScrollFromPercent(v) }
+            visible: root.showMouse
+            title: "MOUSE"
+            glyph: root.mouseGlyph
+
+            SliderRow { width: parent.width; sectionId: "speed"; label: "Speed" }
+            SliderRow { width: parent.width; sectionId: "scroll"; label: "Scroll" }
+            ChoiceRow { width: parent.width; sectionId: "accel"; label: "Acceleration" }
+            ChoiceRow { width: parent.width; sectionId: "primary"; label: "Primary" }
+
+            CompactToggle { width: parent.width; sectionId: "natural"; label: "Natural scroll" }
+          }
+
+          DeviceGroup {
+            width: parent.width
+            visible: root.showTouchpad
+            title: "TOUCHPAD"
+            glyph: root.touchpadGlyph
+
+            SliderRow { width: parent.width; sectionId: "touchSpeed"; label: "Speed" }
+            SliderRow { width: parent.width; sectionId: "touchScroll"; label: "Scroll" }
+            ChoiceRow { width: parent.width; sectionId: "touchAccel"; label: "Acceleration" }
+            ChoiceRow { width: parent.width; sectionId: "touchPrimary"; label: "Primary" }
+
+            Grid {
+              id: touchpadToggles
+              width: parent.width
+              columns: 2
+              columnSpacing: Style.space(8)
+              rowSpacing: Style.space(4)
+              readonly property real cellWidth: (width - columnSpacing) / 2
+
+              CompactToggle { width: touchpadToggles.cellWidth; sectionId: "touchNatural"; label: "Natural scroll" }
+              CompactToggle { width: touchpadToggles.cellWidth; sectionId: "tap"; label: "Tap to click" }
+              CompactToggle { width: touchpadToggles.cellWidth; sectionId: "dwt"; label: "Pause while typing" }
+              CompactToggle { width: touchpadToggles.cellWidth; sectionId: "clickfinger"; label: "Two-finger click" }
+            }
           }
 
           Row {
             width: parent.width
-            spacing: Style.space(10)
+            spacing: Style.space(8)
+            visible: !root.showMouse || !root.showTouchpad
 
-            ChoiceSection {
-              width: (parent.width - parent.spacing) / 2
-              sectionId: "accel"
-              title: "ACCELERATION"
-              options: root.accelOptions
-              value: root.accelProfile === "flat" ? "flat" : "adaptive"
-              onActivated: function(v) { root.setAccel(v) }
+            RevealButton {
+              visible: !root.showMouse
+              sectionId: "revealMouse"
+              text: "Show mouse settings"
+              onClicked: root.mouseRevealed = true
             }
 
-            ChoiceSection {
-              width: (parent.width - parent.spacing) / 2
-              sectionId: "primary"
-              title: "PRIMARY"
-              options: root.primaryOptions
-              value: root.leftHanded ? "right" : "left"
-              onActivated: function(v) { root.setLeftHanded(v === "right") }
+            RevealButton {
+              visible: !root.showTouchpad
+              sectionId: "revealTouchpad"
+              text: "Show touchpad settings"
+              onClicked: root.touchpadRevealed = true
             }
-          }
-
-          Grid {
-            id: switchGrid
-            width: parent.width
-            columns: 2
-            columnSpacing: Style.space(8)
-            rowSpacing: Style.space(4)
-
-            readonly property real cellWidth: (width - columnSpacing) / 2
-
-            CompactToggle {
-              width: switchGrid.cellWidth
-              label: "Natural scroll"
-              sectionId: "natural"
-              checked: root.naturalScroll
-              onClicked: root.setNatural(!root.naturalScroll)
-            }
-
-            CompactToggle {
-              width: switchGrid.cellWidth
-              visible: root.hasTouchpad
-              label: "Tap to click"
-              sectionId: "tap"
-              checked: root.tapToClick
-              onClicked: root.setTapToClick(!root.tapToClick)
-            }
-
-            CompactToggle {
-              width: switchGrid.cellWidth
-              visible: root.hasTouchpad
-              label: "Pause while typing"
-              sectionId: "dwt"
-              checked: root.disableWhileTyping
-              onClicked: root.setDisableWhileTyping(!root.disableWhileTyping)
-            }
-
-            CompactToggle {
-              width: switchGrid.cellWidth
-              visible: root.hasTouchpad
-              label: "Two-finger click"
-              sectionId: "clickfinger"
-              checked: root.clickfingerBehavior
-              onClicked: root.setClickfinger(!root.clickfingerBehavior)
-            }
-          }
-
-          SliderSection {
-            width: parent.width
-            visible: root.hasTouchpad
-            sectionId: "touchScroll"
-            title: "TOUCHPAD SCROLL"
-            value: root.touchScrollPercent
-            valueText: Math.round(dragging ? liveValue : root.touchScrollPercent) + "%"
-            onMoved: function(v) { root.setTouchScrollFromPercent(v) }
-            onReleased: function(v) { root.commitTouchScrollFromPercent(v) }
           }
         }
       }
@@ -522,136 +499,153 @@ Panel {
     id: heroIcon
     Text {
       textFormat: Text.PlainText
-      text: "󰍽"
+      text: root.barGlyph
       color: root.bar.foreground
       font.family: root.bar.fontFamily
       font.pixelSize: Style.font.title
     }
   }
 
-  component SliderSection: Column {
-    id: sliderSection
-    required property string sectionId
+  component DeviceGroup: Column {
+    id: group
     required property string title
-    required property string valueText
-    property real value: 0
-    property real minimum: 0
-    property real maximum: 100
-    property real step: 5
-    property alias dragging: slider.dragging
-    property alias liveValue: slider.liveValue
-    signal moved(real value)
-    signal released(real value)
+    required property string glyph
+    default property alias rows: groupRows.data
 
-    spacing: Style.space(2)
+    spacing: Style.space(6)
 
-    Item {
-      width: parent.width
-      implicitHeight: Math.max(header.implicitHeight, valueLabel.implicitHeight)
-
-      PanelSectionHeader {
-        id: header
-        text: sliderSection.title
-        foreground: root.bar.foreground
-        fontFamily: root.bar.fontFamily
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-      }
-
-      Text {
-        id: valueLabel
-        textFormat: Text.PlainText
-        text: sliderSection.valueText
-        color: Qt.darker(root.bar.foreground, 1.4)
-        font.family: root.bar.fontFamily
-        font.pixelSize: Style.font.caption
-        font.bold: true
-        anchors.right: parent.right
-        anchors.rightMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-      }
-    }
-
-    CursorSurface {
-      id: sliderRow
-      width: parent.width
-      height: slider.implicitHeight
-      hasCursor: root.cursorActive && root.focusSection === sliderSection.sectionId && root.selectedIndex === -1
-      onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(sliderRow)
+    PanelSeparator {
       foreground: root.bar.foreground
-      outline: true
-
-      PanelSlider {
-        id: slider
-        bar: root.bar
-        anchors.fill: parent
-        anchors.leftMargin: Style.space(6)
-        anchors.rightMargin: Style.space(6)
-        minimum: sliderSection.minimum
-        maximum: sliderSection.maximum
-        step: sliderSection.step
-        integer: true
-        value: sliderSection.value
-        onMoved: function(v) { sliderSection.moved(v) }
-        onReleased: function(v) { sliderSection.released(v) }
-      }
-
-      HoverHandler {
-        onHoveredChanged: if (hovered) {
-          root.cursorActive = true
-          root.focusSection = sliderSection.sectionId
-          root.selectedIndex = -1
-        }
-      }
     }
-  }
-
-  component ChoiceSection: Column {
-    id: choiceSection
-    required property string sectionId
-    required property string title
-    required property var options
-    required property string value
-    signal activated(string value)
-
-    spacing: Style.space(4)
 
     PanelSectionHeader {
-      text: choiceSection.title
+      text: group.glyph + "  " + group.title
       foreground: root.bar.foreground
       fontFamily: root.bar.fontFamily
     }
 
-    Grid {
-      id: choiceRow
+    Column {
+      id: groupRows
       width: parent.width
-      columns: choiceSection.options.length
+      spacing: Style.space(4)
+    }
+  }
+
+  component RowLabel: Text {
+    textFormat: Text.PlainText
+    color: root.bar.foreground
+    font.family: root.bar.fontFamily
+    font.pixelSize: Style.font.caption
+    font.bold: true
+    width: Style.space(96)
+    elide: Text.ElideRight
+    anchors.verticalCenter: parent.verticalCenter
+  }
+
+  component SliderRow: CursorSurface {
+    id: sliderRow
+    required property string sectionId
+    required property string label
+    readonly property real percent: root.sliderPercent(sectionId)
+
+    height: slider.implicitHeight
+    hasCursor: root.cursorActive && root.focusSection === sectionId && root.selectedIndex === -1
+    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(sliderRow)
+    foreground: root.bar.foreground
+    outline: true
+
+    RowLabel {
+      id: sliderLabel
+      text: sliderRow.label
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(6)
+    }
+
+    PanelSlider {
+      id: slider
+      bar: root.bar
+      anchors.left: sliderLabel.right
+      anchors.right: sliderValue.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      minimum: 0
+      maximum: 100
+      step: 5
+      integer: true
+      value: sliderRow.percent
+      onMoved: function(v) { root.setSliderPercent(sliderRow.sectionId, v, "live") }
+      onReleased: function(v) { root.setSliderPercent(sliderRow.sectionId, v, "apply") }
+    }
+
+    Text {
+      id: sliderValue
+      textFormat: Text.PlainText
+      text: Math.round(slider.dragging ? slider.liveValue : sliderRow.percent) + "%"
+      horizontalAlignment: Text.AlignRight
+      width: Style.space(36)
+      color: Qt.darker(root.bar.foreground, 1.4)
+      font.family: root.bar.fontFamily
+      font.pixelSize: Style.font.caption
+      font.bold: true
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(6)
+      anchors.verticalCenter: parent.verticalCenter
+    }
+
+    HoverHandler {
+      onHoveredChanged: if (hovered) {
+        root.cursorActive = true
+        root.focusSection = sliderRow.sectionId
+        root.selectedIndex = -1
+      }
+    }
+  }
+
+  component ChoiceRow: Item {
+    id: choiceRow
+    required property string sectionId
+    required property string label
+    readonly property var options: root.choiceOptions(sectionId)
+
+    implicitHeight: Style.space(30)
+
+    RowLabel {
+      id: choiceLabel
+      text: choiceRow.label
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(6)
+    }
+
+    Row {
+      id: choiceButtons
+      anchors.left: choiceLabel.right
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
       spacing: Style.spacing.xs
-      readonly property real cellWidth: columns > 0
-        ? (width - spacing * (columns - 1)) / columns
-        : 0
+      readonly property real cellWidth: (width - spacing * (choiceRow.options.length - 1)) / choiceRow.options.length
 
       Repeater {
-        model: choiceSection.options
+        model: choiceRow.options
 
         Button {
           required property var modelData
           required property int index
-          width: choiceRow.cellWidth
+          width: choiceButtons.cellWidth
           text: modelData.label
           fontSize: Style.font.caption
           foreground: root.bar.foreground
           fontFamily: root.bar.fontFamily
           horizontalPadding: Style.spacing.sm
-          verticalPadding: Style.space(4)
+          verticalPadding: Style.space(3)
           bordered: true
-          selected: choiceSection.value === modelData.value
-          hasCursor: root.cursorActive && root.focusSection === choiceSection.sectionId && root.selectedIndex === index
-          onClicked: choiceSection.activated(modelData.value)
+          selected: root.choiceValue(choiceRow.sectionId) === modelData.value
+          hasCursor: root.cursorActive && root.focusSection === choiceRow.sectionId && root.selectedIndex === index
+          onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(choiceRow)
+          onClicked: root.setChoice(choiceRow.sectionId, modelData.value)
           onHovered: function(isHovered) {
             if (!isHovered) return
             root.cursorActive = true
-            root.focusSection = choiceSection.sectionId
+            root.focusSection = choiceRow.sectionId
             root.selectedIndex = index
           }
         }
@@ -659,18 +653,38 @@ Panel {
     }
   }
 
+  component RevealButton: Button {
+    id: revealButton
+    required property string sectionId
+
+    fontSize: Style.font.caption
+    foreground: root.bar.foreground
+    fontFamily: root.bar.fontFamily
+    horizontalPadding: Style.spacing.sm
+    verticalPadding: Style.space(3)
+    bordered: true
+    hasCursor: root.cursorActive && root.focusSection === sectionId
+    onHovered: function(isHovered) {
+      if (!isHovered) return
+      root.cursorActive = true
+      root.focusSection = revealButton.sectionId
+      root.selectedIndex = 0
+    }
+  }
+
   component CompactToggle: BorderSurface {
     id: toggleRow
     required property string label
     required property string sectionId
-    property bool checked: false
-    signal clicked()
+    readonly property bool hasCursor: root.cursorActive && root.focusSection === sectionId
+
+    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(toggleRow)
 
     implicitHeight: Style.space(32)
     radius: Style.cornerRadius
     color: "transparent"
     borderSpec: Border.controlSpec(
-      (root.cursorActive && root.focusSection === sectionId) || mouse.containsMouse ? "hover-cursor" : "normal",
+      hasCursor || mouse.containsMouse ? "hover-cursor" : "normal",
       root.bar.foreground, Color.accent)
 
     Row {
@@ -693,7 +707,7 @@ Panel {
 
       ToggleSwitch {
         id: switchControl
-        checked: toggleRow.checked
+        checked: root.toggleChecked(toggleRow.sectionId)
         interactive: false
         trackHeight: Style.space(16)
         foreground: root.bar.foreground
@@ -712,7 +726,7 @@ Panel {
         root.focusSection = toggleRow.sectionId
         root.selectedIndex = 0
       }
-      onClicked: toggleRow.clicked()
+      onClicked: root.flipToggle(toggleRow.sectionId)
     }
   }
 }
