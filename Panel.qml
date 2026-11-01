@@ -17,6 +17,7 @@ Panel {
   property real scrollFactor: 1
   property bool leftHanded: false
   property real touchpadSensitivity: 0
+  property bool touchpadNaturalScroll: false
   property real touchpadScrollFactor: 0.4
   property bool disableWhileTyping: true
   property bool tapToClick: true
@@ -61,7 +62,7 @@ Panel {
       scrollFactor: root.scrollFactor,
       leftHanded: root.leftHanded,
       touchpadSensitivity: root.touchpadSensitivity,
-      touchpadNaturalScroll: root.naturalScroll,
+      touchpadNaturalScroll: root.touchpadNaturalScroll,
       touchpadScrollFactor: root.touchpadScrollFactor,
       disableWhileTyping: root.disableWhileTyping,
       tapToClick: root.tapToClick,
@@ -76,6 +77,7 @@ Panel {
     root.scrollFactor = parsed.scrollFactor
     root.leftHanded = parsed.leftHanded
     root.touchpadSensitivity = parsed.touchpadSensitivity
+    root.touchpadNaturalScroll = parsed.touchpadNaturalScroll
     root.touchpadScrollFactor = parsed.touchpadScrollFactor
     root.disableWhileTyping = parsed.disableWhileTyping
     root.tapToClick = parsed.tapToClick
@@ -166,6 +168,11 @@ Panel {
 
   function setNatural(enabled) {
     root.naturalScroll = !!enabled
+    queueApply("apply")
+  }
+
+  function setTouchpadNatural(enabled) {
+    root.touchpadNaturalScroll = !!enabled
     queueApply("apply")
   }
 
@@ -267,6 +274,7 @@ Panel {
 
   function activateCursor() {
     if (focusSection === "natural") { setNatural(!root.naturalScroll); return }
+    if (focusSection === "touchNatural") { setTouchpadNatural(!root.touchpadNaturalScroll); return }
     if (focusSection === "tap") { setTapToClick(!root.tapToClick); return }
     if (focusSection === "dwt") { setDisableWhileTyping(!root.disableWhileTyping); return }
     if (focusSection === "clickfinger") { setClickfinger(!root.clickfingerBehavior); return }
@@ -487,10 +495,19 @@ Panel {
 
             CompactToggle {
               width: switchGrid.cellWidth
-              label: "Natural scroll"
+              label: root.hasTouchpad ? "Mouse natural" : "Natural scroll"
               sectionId: "natural"
               checked: root.naturalScroll
               onClicked: root.setNatural(!root.naturalScroll)
+            }
+
+            CompactToggle {
+              width: switchGrid.cellWidth
+              visible: root.hasTouchpad
+              label: "Touchpad natural"
+              sectionId: "touchNatural"
+              checked: root.touchpadNaturalScroll
+              onClicked: root.setTouchpadNatural(!root.touchpadNaturalScroll)
             }
 
             CompactToggle {
