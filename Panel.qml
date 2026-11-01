@@ -16,6 +16,7 @@ Panel {
   property bool naturalScroll: false
   property real scrollFactor: 1
   property bool leftHanded: false
+  property real touchpadSensitivity: 0
   property real touchpadScrollFactor: 0.4
   property bool disableWhileTyping: true
   property bool tapToClick: true
@@ -35,6 +36,7 @@ Panel {
 
   readonly property real speedPercent: Model.speedPercentFromSensitivity(root.sensitivity)
   readonly property real scrollPercent: Model.scrollPercentFromFactor(root.scrollFactor)
+  readonly property real touchSpeedPercent: Model.speedPercentFromSensitivity(root.touchpadSensitivity)
   readonly property real touchScrollPercent: Model.scrollPercentFromFactor(root.touchpadScrollFactor)
   readonly property var visibleSections: Model.visibleSections(root.hasTouchpad)
   readonly property string applyBin: {
@@ -58,6 +60,7 @@ Panel {
       naturalScroll: root.naturalScroll,
       scrollFactor: root.scrollFactor,
       leftHanded: root.leftHanded,
+      touchpadSensitivity: root.touchpadSensitivity,
       touchpadNaturalScroll: root.naturalScroll,
       touchpadScrollFactor: root.touchpadScrollFactor,
       disableWhileTyping: root.disableWhileTyping,
@@ -72,6 +75,7 @@ Panel {
     root.naturalScroll = parsed.naturalScroll
     root.scrollFactor = parsed.scrollFactor
     root.leftHanded = parsed.leftHanded
+    root.touchpadSensitivity = parsed.touchpadSensitivity
     root.touchpadScrollFactor = parsed.touchpadScrollFactor
     root.disableWhileTyping = parsed.disableWhileTyping
     root.tapToClick = parsed.tapToClick
@@ -123,6 +127,16 @@ Panel {
 
   function nudgeSpeed(steps) {
     commitSensitivityFromPercent(root.speedPercent + steps)
+  }
+
+  function setTouchSpeedFromPercent(percent) {
+    root.touchpadSensitivity = Model.sensitivityFromSpeedPercent(percent)
+    queueApply("live")
+  }
+
+  function commitTouchSpeedFromPercent(percent) {
+    root.touchpadSensitivity = Model.sensitivityFromSpeedPercent(percent)
+    queueApply("apply")
   }
 
   function setScrollFromPercent(percent) {
@@ -232,6 +246,10 @@ Panel {
     }
     if (focusSection === "scroll") {
       commitScrollFromPercent(root.scrollPercent + delta * 5)
+      return
+    }
+    if (focusSection === "touchSpeed") {
+      commitTouchSpeedFromPercent(root.touchSpeedPercent + delta * 5)
       return
     }
     if (focusSection === "touchScroll") {
@@ -403,7 +421,7 @@ Panel {
             width: parent.width
             title: "Mouse"
             iconSize: Style.font.title
-            detail: "1.2.0"
+            detail: "1.3.0"
             meta: Model.heroMeta({
               accelProfile: root.accelProfile,
               naturalScroll: root.naturalScroll,
@@ -418,7 +436,7 @@ Panel {
             id: speedSection
             width: parent.width
             sectionId: "speed"
-            title: "POINTER SPEED"
+            title: "MOUSE SPEED"
             value: root.speedPercent
             valueText: Math.round(dragging ? liveValue : root.speedPercent) + "%"
             onMoved: function(v) { root.setSensitivityFromPercent(v) }
@@ -501,6 +519,17 @@ Panel {
               checked: root.clickfingerBehavior
               onClicked: root.setClickfinger(!root.clickfingerBehavior)
             }
+          }
+
+          SliderSection {
+            width: parent.width
+            visible: root.hasTouchpad
+            sectionId: "touchSpeed"
+            title: "TOUCHPAD SPEED"
+            value: root.touchSpeedPercent
+            valueText: Math.round(dragging ? liveValue : root.touchSpeedPercent) + "%"
+            onMoved: function(v) { root.setTouchSpeedFromPercent(v) }
+            onReleased: function(v) { root.commitTouchSpeedFromPercent(v) }
           }
 
           SliderSection {
