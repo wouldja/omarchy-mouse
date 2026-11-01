@@ -1,7 +1,8 @@
 # Mouse
 
-Bar widget for Omarchy pointer settings: speed, acceleration, natural
-scrolling, scroll speed, primary button, and common touchpad controls.
+Bar widget for Omarchy pointer settings: speed, acceleration, separate mouse
+and touchpad natural scrolling, scroll speed, primary button, and common
+touchpad controls.
 
 ![Mouse panel](preview.png)
 
